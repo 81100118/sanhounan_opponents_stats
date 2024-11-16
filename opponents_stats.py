@@ -3,8 +3,10 @@ import time
 import json
 
 stats_cache = {}
+scale_all_cache = {}
 
 def get_sanhounan_stats(name):
+    global stats_cache
     if name in stats_cache:
         print('read from cache')
         return stats_cache[name]
@@ -12,6 +14,17 @@ def get_sanhounan_stats(name):
     resp = requests.get(url, {'all': 1, 'username': name}).text
     resp_json = json.loads(resp)
     stats_cache[name] = resp_json['s3']
+    return resp_json['s3']
+
+def get_sanhounan_scale_all():
+    global scale_all_cache
+    if len(scale_all_cache) > 0:
+        print('read scale_all from cache')
+        return scale_all_cache
+    url = 'https://nodocchi.moe/s/phoenix_scale_all.js'
+    resp = requests.get(url).text
+    resp_json = json.loads(resp)
+    scale_all_cache = resp_json['s3']
     return resp_json['s3']
 
 def get_interested_stats(full_stats):
@@ -27,8 +40,29 @@ def get_interested_stats(full_stats):
         'riichi_rate': full_stats['riichC'],
         'fuuro_rate': full_stats['fuuroC'],
         'fuuro_daten': full_stats['agariVFT'],
+        'agari_dama_rate': full_stats['damaV'],
+        'some_rate': full_stats['someV'],
         }
     return interested_stats
+
+def get_interested_scales(full_scall_all):
+    interested_scales = {
+        'agari_dama_rate': full_scall_all['damaV']['data'],
+        'some_rate': full_scall_all['someV']['data'],
+    }
+    return interested_scales
+
+def get_interested_percentiles(interested_stats, interested_scales):
+    interested_percentiles = {}
+    for scale in interested_scales:
+        if scale in interested_stats:
+            for i in range(1, 100):
+                if float(interested_scales[scale][i]) > interested_stats[scale]:
+                    interested_percentiles[scale] = i - 1
+                    break
+            else:
+                interested_percentiles = 99
+    return interested_percentiles
 
 main_perspective_name = '你的天凤昵称'
 
@@ -74,7 +108,9 @@ def cronjob():
                 if player != main_perspective_name:
                     print(player)
                     interested_stats = get_interested_stats(get_sanhounan_stats(player))
-                    print(interested_stats)
+                    interested_scales = get_interested_scales(get_sanhounan_scale_all())
+                    interested_percentiles = get_interested_percentiles(interested_stats, interested_scales)
+                    print(interested_stats, interested_percentiles)
                     file_content += ['自家', '下家', '对家', '上家'][(i + 4 - my_seat) % 4] + ' ' + player
                     file_content += '\n'
                     file_content += f"{interested_stats['n_game']}战 安{round(interested_stats['stable_dan'], 2):.2f}"
@@ -90,6 +126,10 @@ def cronjob():
                     file_content += f"和了点 {int(round(interested_stats['agari_daten'], 0))}"
                     file_content += '\n'
                     file_content += f"副露点 {int(round(interested_stats['fuuro_daten'], 0))}"
+                    file_content += '\n'
+                    file_content += f"默听率 {round(interested_stats['agari_dama_rate'], 3):.3f} {interested_percentiles['agari_dama_rate']}%位"
+                    file_content += '\n'
+                    file_content += f"染手率 {round(interested_stats['some_rate'], 3):.3f} {interested_percentiles['some_rate']}%位"
                     file_content += '\n\n'
             with open('stats.txt', 'w') as f:
                 f.write(file_content)
